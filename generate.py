@@ -29,31 +29,40 @@ def generate_from_text(text: str) -> QRNonogram | None:
     )
     qr.add_data(text)
     qr.make(fit=True)
-
     qr_data = np.array(qr.get_matrix())
+
+    print(f"Generating puzzle with size {qr_data.shape}")
+
     rows, columns = calculate_nonogram(qr_data)
     potential_nonogram = solve_nonogram(rows, columns)
 
-    # Check if the nonogram works as is
     num_uncertain = np.sum(potential_nonogram == 0)
+    error = error_proportion(qr_data, potential_nonogram)
+    print(
+        f"Initial nonogram has error proportion {error}, and {num_uncertain} indeterminate entries."
+    )
+
     if num_uncertain == 0:
         return QRNonogram(solution=potential_nonogram, puzzle=(rows, columns))
+    if error >= 0.25:
+        return None
 
     # Otherwise, we need to adjust our input to make the nonogram deterministic
-    for _ in range(5):
-        # Try setting the uncertain entries to be true, and then solve again
-        adjusted_nonogram = potential_nonogram + (potential_nonogram == 0)
-        rows, columns = calculate_nonogram(adjusted_nonogram == 1)
-        potential_nonogram = solve_nonogram(rows, columns)
+    # Try setting the uncertain entries to be true, and then solve again
+    adjusted_nonogram = potential_nonogram + (potential_nonogram == 0)
+    error = error_proportion(
+        qr_data, adjusted_nonogram
+    )  # TODO: don't need to recalculate this, because we already know itll be the same value
+    print(
+        f"Setting all indeterminant entries to be filled. Resulting nonogram will have error of {error}."
+    )
+    if error >= 0.25:
+        return None
 
-        if error_proportion(qr_data, potential_nonogram) >= 0.25:
-            break
-
-        # Check if the nonogram works as is
-        num_uncertain = np.sum(potential_nonogram == 0)
-        if num_uncertain == 0:
-            return QRNonogram(solution=potential_nonogram, puzzle=(rows, columns))
-    return None
+    print("Generating adjusted nonogram")
+    rows, columns = calculate_nonogram(adjusted_nonogram == 1)
+    # We know that this nonogram must be solvable, so we don't need to do any more
+    return QRNonogram(solution=adjusted_nonogram, puzzle=(rows, columns))
 
 
 if __name__ == "__main__":
