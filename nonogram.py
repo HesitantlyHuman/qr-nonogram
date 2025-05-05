@@ -1,52 +1,62 @@
 from typing import List, Tuple
 
+import itertools
 import numpy as np
+
+PERMUTATION_CACHE = {}
+
+
+def partitions(n, k):
+    for c in itertools.combinations(range(n + k - 1), k - 1):
+        yield [b - a - 1 for a, b in zip((-1,) + c, c + (n + k - 1,))]
+
+
+def build_permutation(empty: List[int], full: List[int], length: int) -> np.ndarray:
+    result = -np.ones(length)
+    position = 0
+    for space, run in zip(empty, full):
+        position += space
+        result[position : position + run] = 1
+        position += run + 1
+    return result
+
+
+def get_possible_permutations(runs: List[int], length: int) -> List[np.ndarray]:
+    key = (tuple(runs), length)
+    if key in PERMUTATION_CACHE:
+        return PERMUTATION_CACHE[key]
+
+    num_forced_spaces = len(runs) - 1
+    num_free_spaces = length - sum(runs) - num_forced_spaces
+
+    permutations = []
+    for partition in partitions(num_free_spaces, len(runs) + 1):
+        permutations.append(build_permutation(partition, runs, length))
+
+    PERMUTATION_CACHE[key] = permutations
+
+    return permutations
+
+
+def filter_permutations(
+    permutations: List[np.ndarray], known: np.ndarray
+) -> List[np.ndarray]:
+    filtered = []
+
+    for permutation in permutations:
+        if np.any(permutation * known == -1):
+            continue
+        filtered.append(permutation)
+
+    return filtered
 
 
 def calculate_certain(known: np.ndarray, runs: List[int], length: int) -> np.ndarray:
-    # TODO: we can cace the possible solutions, and then just filter those by the known
-    # TODO: calculating the possible solutions really is just splitting the gaps between
-    # the runs. So take length - sum(runs), place the mandatory space between each, and
-    # then find all possible distributions of the remaining. Seems like itd be faster.
-    # 2  - Undetermined
-    # 1  - Must be filled
-    # 0  - Could be either
-    # -1 - Must be empty
-    possible_solutions = []
+    possible_solutions = get_possible_permutations(runs, length)
+    filtered_solutions = filter_permutations(possible_solutions, known)
 
-    def _place_runs(
-        vector_so_far: np.ndarray,
-        remaining_runs: List[int],
-        start_idx: int,
-    ):
-        if len(remaining_runs) == 0:
-            # Check if this configuration is valid, based on the preset
-            if np.any(known * vector_so_far == -1):
-                # We have a mismatch
-                return
-            possible_solutions.append(vector_so_far)
-            return
-
-        # Iterate over placements of the first section
-        run = remaining_runs[0]
-        for run_start in range(start_idx, length - run + 1):
-            # Place run at this start location, then increment the start idx
-            new_vector = vector_so_far.copy()
-            new_vector[run_start : run_start + run] = 1
-            if np.any(known[run_start : run_start + run] == -1):
-                # We already know this cannot work, since one of these squares
-                # needs to be empty
-                continue
-            if sum(remaining_runs[1:]) + len(remaining_runs[1:]) - 1 > length - (
-                run_start + run
-            ):
-                continue
-            _place_runs(new_vector, remaining_runs[1:], run_start + run + 1)
-
-    _place_runs(-np.ones(length), runs, 0)
-
-    certain = possible_solutions[0]
-    for possibility in possible_solutions[1:]:
+    certain = filtered_solutions[0].copy()
+    for possibility in filtered_solutions[1:]:
         certain[certain != possibility] = 0
     return certain
 
@@ -59,7 +69,7 @@ def solve_nonogram(row_runs: List[int], column_runs: List[int]) -> np.ndarray:
     column_needs_updating = np.ones(width, dtype=bool)
 
     for step in range(100):
-        print(f"Starting step {step}")
+        # print(f"Starting step {step}")
         next_board = board.copy()
 
         # First, update the rows
@@ -87,7 +97,7 @@ def solve_nonogram(row_runs: List[int], column_runs: List[int]) -> np.ndarray:
         for column_idx, runs in enumerate(column_runs):
             if not column_needs_updating[column_idx]:
                 continue
-            current_column_values = next_board[column_idx]
+            current_column_values = next_board[column_idx, :]
             if np.sum(current_column_values == 0) == 0:
                 continue
 
@@ -95,12 +105,12 @@ def solve_nonogram(row_runs: List[int], column_runs: List[int]) -> np.ndarray:
             diff_indices = np.where(current_column_values != next_column_values)[0]
             for row in diff_indices:
                 row_needs_updating[row] = True
-            next_board[column_idx] = next_column_values
+            next_board[column_idx, :] = next_column_values
         column_needs_updating[:] = False
 
-        # Prepare for the next iteration
-        if np.all(board == next_board) or np.all(row_needs_updating == False):
+        if np.all(row_needs_updating == False):
             break
+
         board = next_board
 
     return board
@@ -137,67 +147,41 @@ def calculate_nonogram(array: np.ndarray) -> Tuple[List[int], List[int]]:
 
 
 if __name__ == "__main__":
-    # rows = [
-    #     [5, 5],
-    #     [5, 5],
-    #     [3, 1, 3, 1],
-    #     [2, 1, 2, 1],
-    #     [5, 1, 5],
-    #     [1],
-    #     [2],
-    #     [3, 3],
-    #     [1, 5, 1],
-    #     [2, 2],
-    #     [2, 2],
-    #     [7],
-    # ]
-    # columns = [
-    #     [5],
-    #     [5, 3],
-    #     [3, 1, 1, 2],
-    #     [2, 1, 1, 2],
-    #     [5, 1, 1],
-    #     [1, 1, 1],
-    #     [3, 1, 1],
-    #     [1, 1],
-    #     [5, 1, 1],
-    #     [5, 1, 2],
-    #     [3, 1, 1, 2],
-    #     [2, 1, 3],
-    #     [5],
-    # ]
+    rows = [
+        [5, 5],
+        [5, 5],
+        [3, 1, 3, 1],
+        [2, 1, 2, 1],
+        [5, 1, 5],
+        [1],
+        [2],
+        [3, 3],
+        [1, 5, 1],
+        [2, 2],
+        [2, 2],
+        [7],
+    ]
+    columns = [
+        [5],
+        [5, 3],
+        [3, 1, 1, 2],
+        [2, 1, 1, 2],
+        [5, 1, 1],
+        [1, 1, 1],
+        [3, 1, 1],
+        [1, 1],
+        [5, 1, 1],
+        [5, 1, 2],
+        [3, 1, 1, 2],
+        [2, 1, 3],
+        [5],
+    ]
 
-    # solved = solve_nonogram(rows, columns) == 1
-    # print(calculate_nonogram(solved))
+    solved = solve_nonogram(rows, columns)
+    print(solved)
+    print(calculate_nonogram(solved == 1))
 
-    run_lengths(
-        np.array(
-            [
-                -1,
-                1,
-                1,
-                1,
-                -1,
-                -1,
-                1,
-                1,
-                1,
-                1,
-                -1,
-                1,
-                1,
-                1,
-                -1,
-                1,
-                1,
-                1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                1,
-            ]
-        )
-    )
+    # known = np.zeros(13)
+    # known[0] = -1
+    # print(known)
+    # print(calculate_certain(known, [5, 5], 13))

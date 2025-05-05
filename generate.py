@@ -49,17 +49,8 @@ def generate_from_text(text: str) -> QRNonogram | None:
 
     # Otherwise, we need to adjust our input to make the nonogram deterministic
     # Try setting the uncertain entries to be true, and then solve again
-    adjusted_nonogram = potential_nonogram + (potential_nonogram == 0)
-    error = error_proportion(
-        qr_data, adjusted_nonogram
-    )  # TODO: don't need to recalculate this, because we already know itll be the same value
-    print(
-        f"Setting all indeterminant entries to be filled. Resulting nonogram will have error of {error}."
-    )
-    if error >= 0.25:
-        return None
-
     print("Generating adjusted nonogram")
+    adjusted_nonogram = potential_nonogram + (potential_nonogram == 0)
     rows, columns = calculate_nonogram(adjusted_nonogram == 1)
     # We know that this nonogram must be solvable, so we don't need to do any more
     return QRNonogram(solution=adjusted_nonogram, puzzle=(rows, columns))
